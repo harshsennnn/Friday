@@ -1,43 +1,44 @@
 const { ipcRenderer } = require('electron');
 
+// 1. Instantly phone home the moment the script is injected
+ipcRenderer.send('preload-log', 'Script injected and running!');
+
 ipcRenderer.on('start-voice-mode', () => {
-    console.log("[F.R.I.D.A.Y.] Trigger received. Hunting for Voice Mode button...");
+    ipcRenderer.send('preload-log', 'Trigger received! Hunting for Voice button...');
     
-    // The Waterfall: Updated with your live DOM inspection
     const possibleSelectors = [
-        '[aria-label="Start Voice"]',           // <--- YOUR EXACT TARGET
-        '[aria-label="Start voice session"]',   // Fallback 1
-        '[data-testid="voice-mode-button"]',    // Fallback 2
-        'button[aria-label="Voice Mode"]'       // Fallback 3
+        '[aria-label="Start Voice"]',
+        '[aria-label="Start voice session"]',
+        'button[data-testid="voice-mode-button"]'
     ];
 
     let voiceButton = null;
 
     for (const selector of possibleSelectors) {
-        voiceButton = document.querySelector(selector);
-        if (voiceButton) {
-            console.log(`[F.R.I.D.A.Y.] Target acquired using selector: ${selector}`);
-            break; 
+        const elements = document.querySelectorAll(selector);
+        for (const el of elements) {
+            if (el.offsetParent !== null) { 
+                voiceButton = el;
+                break;
+            }
         }
+        if (voiceButton) break;
     }
     
     if (voiceButton) {
-        // Dispatching a full MouseEvent to bypass React's synthetic event traps
-        const clickEvent = new MouseEvent('click', {
-            view: window,
-            bubbles: true,
-            cancelable: true,
-            buttons: 1
+        ipcRenderer.send('preload-log', 'Target acquired. Executing click...');
+        
+        // The Nuclear Click
+        const eventSequence = ['mouseover', 'mousedown', 'mouseup', 'click'];
+        eventSequence.forEach(eventType => {
+            const event = new MouseEvent(eventType, {
+                view: window, bubbles: true, cancelable: true, buttons: 1
+            });
+            voiceButton.dispatchEvent(event);
         });
         
-        voiceButton.dispatchEvent(clickEvent);
-        console.log("[F.R.I.D.A.Y.] Button pressed. WebRTC handshake initiating...");
-        
+        setTimeout(() => voiceButton.click(), 50); 
     } else {
-        console.error("[F.R.I.D.A.Y.] CRITICAL ERROR: Voice button not found.");
+        ipcRenderer.send('preload-log', 'CRITICAL ERROR: Target not found!');
     }
-});
-
-window.addEventListener('DOMContentLoaded', () => {
-    console.log("[F.R.I.D.A.Y.] DOM Assassin online. Awaiting IPC signals...");
 });

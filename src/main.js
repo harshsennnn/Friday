@@ -1,4 +1,5 @@
-const { app, BrowserWindow } = require('electron');
+
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
 // Enforce single instance lock
@@ -13,18 +14,30 @@ if (!gotTheLock) {
 
   app.commandLine.appendSwitch('enable-transparent-visuals');
 
-  function createWindows() {
+function createWindows() {
     console.log("Creating windows...");
     
+    // --- ADD THIS LOG ---
+    const preloadPath = path.join(__dirname, 'preload.js');
+    console.log("Attempting to load preload script from:", preloadPath);
+    // --------------------
+
     workspaceWindow = new BrowserWindow({
       width: 1200, height: 800,
-      show: true,
+      show: true, // Keep it true for this test
       webPreferences: {
+        preload: preloadPath,
         backgroundThrottling: false,
         contextIsolation: true,
       }
     });
     workspaceWindow.loadURL('https://chatgpt.com');
+    
+    // Listen for messages coming from the hidden webpage
+ipcMain.on('preload-log', (event, message) => {
+    console.log(`[DOM ASSASSIN SAYS]: ${message}`);
+});
+
 
 // 2. The HUD Overlay Window
   hudWindow = new BrowserWindow({
