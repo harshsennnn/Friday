@@ -68,21 +68,27 @@ ipcMain.on('preload-log', (event, message) => {
 
   // When Hyprland tries to launch a second instance via hotkey, this triggers:
 // Intercept the OS-level hotkey launch from Hyprland
+// Intercept the OS-level hotkey launch
   app.on('second-instance', (event, commandLine, workingDirectory) => {
     if (commandLine.includes('--toggle')) {
       if (hudWindow.isVisible()) {
+        
+        // TURN OFF SEQUENCE
         hudWindow.hide();
-        console.log("HUD Hidden");
-        
-        // Optional future feature: click the "End Voice Session" button here
+        console.log("HUD Hidden. Sending STOP trigger to Workspace...");
+        if (workspaceWindow) {
+          workspaceWindow.webContents.send('stop-voice-mode');
+        }
+
       } else {
-        hudWindow.showInactive(); // Show without stealing keyboard focus
-        console.log("HUD Active. Sending trigger to Workspace...");
         
-        // --- NEW: Trigger the DOM Assassin ---
+        // TURN ON SEQUENCE
+        hudWindow.showInactive(); 
+        console.log("HUD Active. Sending START trigger to Workspace...");
         if (workspaceWindow) {
           workspaceWindow.webContents.send('start-voice-mode');
         }
+
       }
     }
   });
