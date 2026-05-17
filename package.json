@@ -1,0 +1,14 @@
+{
+  "name": "friday-assistant",
+  "version": "1.0.0",
+  "description": "Desktop Voice Assistant Wrapper for ChatGPT",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^30.0.0"
+  }
+}
