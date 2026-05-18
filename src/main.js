@@ -1,12 +1,14 @@
-
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
-// Enforce single instance lock
+// --- NEW: OS DETECTION ROUTER ---
+const isLinux = process.platform === 'linux';
+// If this environment variable exists, we know they are running Hyprland
+const isHyprland = isLinux && process.env.HYPRLAND_INSTANCE_SIGNATURE !== undefined;
+
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
-  // If an instance is already running, quit this new one immediately
   app.quit();
 } else {
   let workspaceWindow;
@@ -14,45 +16,52 @@ if (!gotTheLock) {
 
   app.commandLine.appendSwitch('enable-transparent-visuals');
 
-function createWindows() {
+  function createWindows() {
     console.log("Creating windows...");
-    
-    // --- ADD THIS LOG ---
     const preloadPath = path.join(__dirname, 'preload.js');
-    console.log("Attempting to load preload script from:", preloadPath);
-    // --------------------
 
-    workspaceWindow = new BrowserWindow({
-      width: 1200, height: 800,
-      show: true, // Keep it true for this test
+    // --- DYNAMIC WORKSPACE CONFIGURATION ---
+    let workspaceConfig = {
+      width: 1200, 
+      height: 800,
+      show: true, // Must be true so React doesn't destroy the DOM
       webPreferences: {
         preload: preloadPath,
-        backgroundThrottling: false,
+        backgroundThrottling: false, 
         contextIsolation: true,
       }
-    });
+    };
+
+    if (isHyprland) {
+      console.log("Hyprland detected: Applying scratchpad title tag.");
+      workspaceConfig.title = "friday-workspace"; 
+    } else {
+      console.log("Standard OS detected: Pushing window off-screen.");
+      // Windows, Mac, and GNOME/KDE respect these coordinates.
+      // The window exists, React renders it, but it's invisible to the user.
+      workspaceConfig.x = -10000;
+      workspaceConfig.y = -10000;
+      workspaceConfig.skipTaskbar = true; // Hide it from the Windows/Mac dock
+    }
+
+    // 1. The Full Workspace Window
+    workspaceWindow = new BrowserWindow(workspaceConfig);
     workspaceWindow.loadURL('https://chatgpt.com');
+
+    // 2. The HUD Overlay Window
+    hudWindow = new BrowserWindow({
+      width: 200, height: 200,
+      transparent: true,
+      frame: false,
+      resizable: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      show: false,
+      type: 'splash',      
+      title: 'friday-hud', 
+      webPreferences: { nodeIntegration: true }
+    });
     
-    // Listen for messages coming from the hidden webpage
-ipcMain.on('preload-log', (event, message) => {
-    console.log(`[DOM ASSASSIN SAYS]: ${message}`);
-});
-
-
-// 2. The HUD Overlay Window
-  hudWindow = new BrowserWindow({
-    width: 200, height: 200,
-    transparent: true,
-    frame: false,
-    resizable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    show: false,
-    type: 'splash', // <-- Tells Linux WMs "I am an overlay, do not decorate me"
-    title: 'friday-hud', // <-- Explicit title so we can target it in Hyprland
-    webPreferences: { nodeIntegration: true }
-  });
-
     const { screen } = require('electron');
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width, height } = primaryDisplay.workAreaSize;
@@ -63,34 +72,24 @@ ipcMain.on('preload-log', (event, message) => {
     });
 
     hudWindow.loadFile(path.join(__dirname, 'ui/hud.html'));
-    console.log("F.R.I.D.A.Y. Background Engine Online.");
   }
 
-  // When Hyprland tries to launch a second instance via hotkey, this triggers:
-// Intercept the OS-level hotkey launch from Hyprland
-// Intercept the OS-level hotkey launch
+  // Intercept the OS-level hotkey launch
   app.on('second-instance', (event, commandLine, workingDirectory) => {
     if (commandLine.includes('--toggle')) {
       if (hudWindow.isVisible()) {
-        
-        // TURN OFF SEQUENCE
         hudWindow.hide();
-        console.log("HUD Hidden. Sending STOP trigger to Workspace...");
-        if (workspaceWindow) {
-          workspaceWindow.webContents.send('stop-voice-mode');
-        }
-
+        if (workspaceWindow) workspaceWindow.webContents.send('stop-voice-mode');
       } else {
-        
-        // TURN ON SEQUENCE
         hudWindow.showInactive(); 
-        console.log("HUD Active. Sending START trigger to Workspace...");
-        if (workspaceWindow) {
-          workspaceWindow.webContents.send('start-voice-mode');
-        }
-
+        if (workspaceWindow) workspaceWindow.webContents.send('start-voice-mode');
       }
     }
+  });
+
+  // Listen for logs from the DOM Assassin
+  ipcMain.on('preload-log', (event, message) => {
+      console.log(`[DOM ASSASSIN SAYS]: ${message}`);
   });
 
   app.whenReady().then(() => {

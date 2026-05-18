@@ -1,9 +1,7 @@
 const { ipcRenderer } = require('electron');
 
-// 1. Phone home
 ipcRenderer.send('preload-log', 'Script injected and running!');
 
-// 2. Reusable Nuclear Click Function
 function triggerNuclearClick(element) {
     const eventSequence = ['mouseover', 'mousedown', 'mouseup', 'click'];
     eventSequence.forEach(eventType => {
@@ -28,13 +26,10 @@ ipcRenderer.on('start-voice-mode', () => {
     let voiceButton = null;
     for (const selector of possibleSelectors) {
         const elements = document.querySelectorAll(selector);
-        for (const el of elements) {
-            if (el.offsetParent !== null) { 
-                voiceButton = el;
-                break;
-            }
+        if (elements.length > 0) {
+            voiceButton = elements[0]; // Just grab the first one we find!
+            break;
         }
-        if (voiceButton) break;
     }
     
     if (voiceButton) {
@@ -45,11 +40,10 @@ ipcRenderer.on('start-voice-mode', () => {
     }
 });
 
-// 4. STOP VOICE LISTENER (NEW)
+// 4. STOP VOICE LISTENER
 ipcRenderer.on('stop-voice-mode', () => {
     ipcRenderer.send('preload-log', 'Stop trigger received! Hunting for End button...');
     
-    // Add a fallback just in case they change it to "End voice session" later
     const possibleSelectors = [
         '[aria-label="End Voice"]',
         '[aria-label="End voice session"]'
@@ -58,13 +52,10 @@ ipcRenderer.on('stop-voice-mode', () => {
     let endButton = null;
     for (const selector of possibleSelectors) {
         const elements = document.querySelectorAll(selector);
-        for (const el of elements) {
-            if (el.offsetParent !== null) { 
-                endButton = el;
-                break;
-            }
+        if (elements.length > 0) {
+            endButton = elements[0]; // Just grab the first one!
+            break;
         }
-        if (endButton) break;
     }
     
     if (endButton) {
