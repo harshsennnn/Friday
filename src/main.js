@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { execSync } = require('child_process'); 
 
 // --- OS DETECTION ROUTER ---
 const isLinux = process.platform === 'linux';
@@ -19,6 +20,12 @@ if (!gotTheLock) {
   let hudWindow;
 
   app.commandLine.appendSwitch('enable-transparent-visuals');
+  
+  // --- DAEMON FIX: Keep Chromium awake in the background ---
+  app.commandLine.appendSwitch('disable-renderer-backgrounding');
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+  app.commandLine.appendSwitch('disable-background-timer-throttling');
+  // --------------------------------------------------------
 
   // --- THE CONTEXT GENERATOR ---
   function getContextPrompt() {
@@ -54,21 +61,58 @@ if (!gotTheLock) {
     }
 
     // --- FORCE TEST OVERRIDE ---
-    // This guarantees the context runs every time you hit the hotkey for testing.
     prompt = "F.R.I.D.A.Y., this is a system test. Say 'Systems nominal, Boss'.";
 
     fs.writeFileSync(statePath, JSON.stringify(state));
     return prompt; 
   }
 
+  // --- AUTOMATED COMPOSITOR RULES (HUD ONLY) ---
+  function injectCompositorRules() {
+    if (isHyprland) {
+      console.log("Hyprland detected. Programmatically pinning HUD window styles...");
+      const rules = [
+        'float, title:^(friday-hud)$',
+        'noborder, title:^(friday-hud)$',
+        'noshadow, title:^(friday-hud)$',
+        'noblur, title:^(friday-hud)$',
+        'nofocus, title:^(friday-hud)$',
+        'pin, title:^(friday-hud)$',
+        'move 45% 80%, title:^(friday-hud)$'
+      ];
+      rules.forEach(rule => {
+        try { execSync(`hyprctl keyword windowrulev2 "${rule}"`); } catch (e) {}
+      });
+    }
+  }
+
+  // --- TOGGLE LOGIC ---
+  function toggleFriday() {
+    if (hudWindow.isVisible()) {
+      hudWindow.hide();
+      console.log("HUD Hidden. Sending STOP trigger...");
+      if (workspaceWindow) workspaceWindow.webContents.send('stop-voice-mode');
+    } else {
+      hudWindow.showInactive(); 
+      console.log("HUD Active. Sending START trigger...");
+      const contextPrompt = getContextPrompt();
+      if (workspaceWindow) workspaceWindow.webContents.send('start-voice-mode', contextPrompt);
+    }
+  }
+
   function createWindows() {
     console.log("Creating windows...");
+    
+    // Inject HUD rules
+    injectCompositorRules(); 
+
     const preloadPath = path.join(__dirname, 'preload.js');
+    let runHidden = process.argv.includes('--daemon');
 
     // --- DYNAMIC WORKSPACE CONFIGURATION ---
     let workspaceConfig = {
       width: 1200, height: 800,
-      show: true, // Must be true so React doesn't destroy the DOM
+      show: false, // CRITICAL FIX: Start completely invisible to avoid screen flashes
       webPreferences: {
         preload: preloadPath,
         backgroundThrottling: false, 
@@ -76,19 +120,48 @@ if (!gotTheLock) {
       }
     };
 
-    if (isHyprland) {
-      console.log("Hyprland detected: Applying scratchpad title tag.");
-      workspaceConfig.title = "friday-workspace"; 
+    if (runHidden) {
+      if (isHyprland) {
+        console.log("Hidden Daemon Boot: Applying scratchpad title tag.");
+        workspaceConfig.title = "friday-workspace"; 
+      } else {
+        workspaceConfig.x = -10000;
+        workspaceConfig.y = -10000;
+        workspaceConfig.skipTaskbar = true;
+      }
     } else {
-      console.log("Standard OS detected: Pushing window off-screen.");
-      workspaceConfig.x = -10000;
-      workspaceConfig.y = -10000;
-      workspaceConfig.skipTaskbar = true;
+      console.log("Visible Boot: Displaying standard app UI.");
+      workspaceConfig.title = "F.R.I.D.A.Y. Interface"; 
     }
 
     workspaceWindow = new BrowserWindow(workspaceConfig);
+    
+    // Prevent React from renaming the window so Hyprland can always find it
+    workspaceWindow.on('page-title-updated', (event) => {
+      if (runHidden && isHyprland) {
+        event.preventDefault(); 
+      }
+    });
+
     workspaceWindow.loadURL('https://chatgpt.com');
 
+    // --- ACTIVE HYPRLAND DISPATCH ---
+    workspaceWindow.once('ready-to-show', () => {
+      if (runHidden && isHyprland) {
+        console.log("Window loaded in memory. Dispatching move command to Hyprland...");
+        try {
+          // Forcefully shove this exact window into the special workspace
+          execSync(`hyprctl dispatch movetoworkspacesilent special:friday,title:^(friday-workspace)$`);
+        } catch (e) {
+          console.error("[Compositor Error]: Dispatch failed", e);
+        }
+      }
+      
+      // Now that it is safely locked inside the scratchpad (or standard OS x/y coords), turn the pixels on
+      workspaceWindow.show();
+    });
+
+    // --- HUD WINDOW CONFIGURATION ---
     hudWindow = new BrowserWindow({
       width: 200, height: 200,
       transparent: true, frame: false, resizable: false,
@@ -112,16 +185,7 @@ if (!gotTheLock) {
   // Intercept the OS-level hotkey launch
   app.on('second-instance', (event, commandLine) => {
     if (commandLine.includes('--toggle')) {
-      if (hudWindow.isVisible()) {
-        hudWindow.hide();
-        console.log("HUD Hidden. Sending STOP trigger...");
-        if (workspaceWindow) workspaceWindow.webContents.send('stop-voice-mode');
-      } else {
-        hudWindow.showInactive(); 
-        console.log("HUD Active. Sending START trigger...");
-        const contextPrompt = getContextPrompt();
-        if (workspaceWindow) workspaceWindow.webContents.send('start-voice-mode', contextPrompt);
-      }
+      toggleFriday();
     }
   });
 
